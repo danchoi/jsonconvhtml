@@ -40,6 +40,7 @@ We want to transform the "description" fields from HTML to plain text:
 jsonbf 'elinks -dump'  'description' < example.json  | jq -M '.' > README.md
 ```
 
+NOTE: More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces.
 
 Output:
 
