@@ -51,12 +51,18 @@ main = do
       ks = parseKeyPath $ T.pack expr
       ks' :: [[Key]]
       ks' = [k | KeyPath k <- ks]
-  -- transform JSON
-
   when debugKeyPaths $ do
      Prelude.putStrLn $ "Key Paths: " ++ show ks
      exitSuccess
-  Prelude.putStrLn "TEST"  
+  -- transform JSON
+  xs' <- mapM (runFilterOnPaths io ks') xs
+  mapM_ print xs'
+  
+io x = do
+      putStrLn "io running"
+      putStrLn . show $ x
+      putStrLn "end io running"
+      return x
 
 ------------------------------------------------------------------------
 
@@ -79,12 +85,10 @@ data FilterEnv = FilterEnv { targetKeyPath :: [Key]
 
 runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
 runFilterOnPath k v = do
-      liftIO $ putStrLn $ "runFilterPath " ++ show k 
+      -- liftIO $ putStrLn $ "runFilterPath " ++ show k 
       targetKeyPath' <- asks targetKeyPath
       if (k == targetKeyPath') 
-      then do
-          liftIO $ putStrLn $ "Matched key path " ++ show targetKeyPath'
-          return v
+      then liftIO $ io v
       else go k v
   where 
     go :: [Key] -> Value -> ReaderT FilterEnv IO Value
@@ -98,10 +102,6 @@ runFilterOnPath k v = do
        pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilterOnPath (ks <> [Key k]) v) pairs
        return . Object . HM.fromList $ pairs'
 
-
-
-
- 
 ------------------------------------------------------------------------
 -- decode JSON object stream
 
