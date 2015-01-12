@@ -40,7 +40,11 @@ We want to transform the "description" fields from HTML to plain text:
 jsonbf 'elinks -dump'  'description' < example.json  | jq -M '.' 
 ```
 
-NOTE: More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces.
+More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces. The bash filter will be applied to all of them, e.g.
+
+```bash
+jsonbf 'elinks -dump'  'description review' < example.json  | jq -M '.' 
+```
 
 Currently only ONE bash filter command can be given. If you want to apply a pipeline of commands, wrap it in a bash script.
 
