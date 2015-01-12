@@ -23,6 +23,7 @@ import qualified Options.Applicative as O
 import Control.Monad (when)
 import System.Exit
 import Data.String.QQ 
+import System.Process (readProcess)
 
 data Options = Options { 
     filterProgram :: String
@@ -45,6 +46,7 @@ opts = O.info (O.helper <*> parseOpts)
 
 main = do
   Options filterProg expr debugKeyPaths <- O.execParser opts
+  let (prog:args) = words filterProg
   x <- BL.getContents 
   let xs :: [Value]
       xs = decodeStream x
@@ -52,17 +54,21 @@ main = do
       ks' :: [[Key]]
       ks' = [k | KeyPath k <- ks]
   when debugKeyPaths $ do
+     putStrLn $ "FilterProg: " ++ prog ++ show args
      Prelude.putStrLn $ "Key Paths: " ++ show ks
      exitSuccess
   -- transform JSON
-  xs' <- mapM (runFilterOnPaths io ks') xs
-  mapM_ print xs'
+  let bashFilter = io prog args
+  xs' <- mapM (runFilterOnPaths bashFilter ks') xs
+  mapM_ (L8.putStrLn . encode) xs'
   
-io x = do
-      putStrLn "io running"
-      putStrLn . show $ x
-      putStrLn "end io running"
-      return x
+io :: String -> [String] -> Value -> IO Value
+io prog args v = 
+  case v of 
+    String v' -> do
+      res <- readProcess prog args (T.unpack v')
+      return . String . T.pack $ res
+    _ -> return v -- no op
 
 ------------------------------------------------------------------------
 
@@ -87,8 +93,9 @@ runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value
 runFilterOnPath k v = do
       -- liftIO $ putStrLn $ "runFilterPath " ++ show k 
       targetKeyPath' <- asks targetKeyPath
+      bashFilter' <- asks filterProg
       if (k == targetKeyPath') 
-      then liftIO $ io v
+      then liftIO $ bashFilter' v
       else go k v
   where 
     go :: [Key] -> Value -> ReaderT FilterEnv IO Value

@@ -25,6 +25,7 @@ executable jsonbf
                      , bytestring
                      , attoparsec >= 0.12.0.0
                      , containers
+                     , process
                      , unordered-containers
                      , text >= 1.0.0.0
                      , vector
