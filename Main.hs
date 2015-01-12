@@ -23,17 +23,19 @@ import qualified Options.Applicative as O
 import Control.Monad (when)
 import System.Exit
 import Data.String.QQ 
-import System.Process (readProcess)
+import System.Process (readProcess, readProcessWithExitCode)
 
 data Options = Options { 
-    filterProgram :: String
+    preFilter :: Maybe String
+  , filterProgram :: String
   , fieldsToFilter :: String
   , debugKeyPaths :: Bool
   } deriving Show
 
 parseOpts :: O.Parser Options
 parseOpts = Options 
-  <$> O.argument O.str (O.metavar "FILTERPROG" <> O.help "Shell filter pipeline")
+  <$> ((Just <$> O.strOption (O.short 'p' <> O.long "prefilter" <> O.metavar "PREFILTER" <> O.help "This filter prevent main filter from being applied if exit code 0")) <|> pure Nothing)
+  <*> O.argument O.str (O.metavar "FILTERPROG" <> O.help "External filter")
   <*> O.argument O.str (O.metavar "FIELDS" <> O.help "JSON keypath expressions")
   <*> O.switch (O.long "debug" <> O.help "Debug keypaths")
 
@@ -45,7 +47,7 @@ opts = O.info (O.helper <*> parseOpts)
             <> O.footer "See https://github.com/danchoi/jsonbashfilter for more information.")
 
 main = do
-  Options filterProg expr debugKeyPaths <- O.execParser opts
+  Options preFilter filterProg expr debugKeyPaths <- O.execParser opts
   let (prog:args) = words filterProg
   x <- BL.getContents 
   let xs :: [Value]
@@ -58,17 +60,32 @@ main = do
      Prelude.putStrLn $ "Key Paths: " ++ show ks
      exitSuccess
   -- transform JSON
-  let bashFilter = io prog args
+  let bashFilter = io prog preFilter args
   xs' <- mapM (runFilterOnPaths bashFilter ks') xs
   mapM_ (L8.putStrLn . encode) xs'
   
-io :: String -> [String] -> Value -> IO Value
-io prog args v = 
-  case v of 
-    String v' -> do
-      res <- readProcess prog args (T.unpack v')
-      return . String . T.pack $ res
-    _ -> return v -- no op
+io :: String -> Maybe String -> [String] -> Value -> IO Value
+io prog preFilter args v = 
+    case v of 
+      String v' -> do
+        go <- runPreFilter v'
+        if go
+        then do 
+            res <- readProcess prog args (T.unpack v')
+            return . String . T.pack $ res
+        else return v -- no op
+      _ -> return v -- no op
+
+  where 
+    runPreFilter v = 
+      case preFilter of 
+        Just preFilter' -> do
+            let preProg:pArgs = words preFilter'
+            (exitcode, _, _ ) <- readProcessWithExitCode preProg pArgs (T.unpack v)
+            case exitcode of
+              ExitSuccess -> return True
+              ExitFailure _ -> return False
+        _ -> return True
 
 ------------------------------------------------------------------------
 
