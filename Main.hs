@@ -5,7 +5,7 @@ import Control.Applicative
 import Control.Monad.Reader
 import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Lazy as L
-import Data.ByteString.Lazy as BL hiding (map, intersperse, zip, concat)
+import Data.ByteString.Lazy as BL hiding (map, intersperse, zip, concat, putStrLn)
 import qualified Data.ByteString.Lazy.Char8 as L8 
 import System.Time
 import System.Environment (getArgs)
@@ -104,7 +104,6 @@ pKeyPath :: AT.Parser KeyPath
 pKeyPath = KeyPath 
     <$> (AT.sepBy1 pKeyOrIndex (AT.takeWhile1 $ AT.inClass ".["))
 
-
 pKeyOrIndex :: AT.Parser Key
 pKeyOrIndex = pIndex <|> pKey
 
@@ -117,42 +116,29 @@ pIndex = Index <$> AT.decimal <* AT.char ']'
 -- runFilterOnPaths :: (Value -> IO Value) -> [KeyPath] -> Value -> IO Value
 -- runFilterOnPaths ioFilter ks v = mapM (\kp -> runFilterOnPath filterProg kp v) ks
 
+data FilterEnv = FilterEnv { targetKeyPath :: [Key]
+                           , filterProg :: (Value -> IO Value)
+                           } 
 
-data FilterEnv = FilterEnv { targetKeyPath :: [Key] }
+runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
+runFilterOnPath k v = do
+      targetKeyPath' <- asks targetKeyPath
+      if (k == targetKeyPath') 
+      then do
+          liftIO $ putStrLn $ "Matched key path " ++ show targetKeyPath'
+          return v
+      else go k v
+  where go :: [Key] -> Value -> ReaderT FilterEnv IO Value
+        go _ x@(String _) = return x
+        go _ Null = return Null
+        go _ x@(Number _) = return x
+        go _ x@(Bool _) = return x
+        go _ x@(Array _) = return x          -- no effect on Arrays
+        go ((Key k):ks) x@(Object hm) = 
+            case (HM.lookup k hm) of
+                Just x'  -> do
+                   x'' <- runFilterOnPath ks x' 
+                   return . Object $ HM.union (HM.singleton k x'') hm
+                Nothing -> return x
 
-runFilterOnPath :: (Value -> IO Value) -> [Key] -> Value -> ReaderT FilterEnv IO Value 
-runFilterOnPath ioFilter k v = undefined
--- runFilterOnPath ioFilter k (String _) = 
-
-
-{-
--- evaluates the a JS key path against a Value context to a leaf Value
-evalKeyPath :: ArrayDelimiter -> [Key] -> Value -> Value
-evalKeyPath d [] x@(String _) = x
-evalKeyPath d [] x@Null = x
-evalKeyPath d [] x@(Number _) = x
-evalKeyPath d [] x@(Bool _) = x
-evalKeyPath d [] x@(Object _) = x
-evalKeyPath d [] x@(Array v) | V.null v = Null
-evalKeyPath d [] x@(Array v) = 
-          let vs = V.toList v
-              xs = intersperse d $ map (evalToText d []) vs
-          in String . mconcat $ xs
-evalKeyPath d (Key key:ks) (Object s) = 
-    case (HM.lookup key s) of
-        Just x          -> evalKeyPath d ks x
-        Nothing -> Null
-evalKeyPath d (Index idx:ks) (Array v) = 
-      let e = (V.!?) v idx
-      in case e of 
-        Just e' -> evalKeyPath d ks e'
-        Nothing -> Null
--- traverse array elements with additional keys
-evalKeyPath d ks@(Key key:_) (Array v) | V.null v = Null
-evalKeyPath d ks@(Key key:_) (Array v) = 
-      let vs = V.toList v
-      in String . mconcat . intersperse d $ map (evalToText d ks) vs
-evalKeyPath _ ((Index _):_) _ = Null
-evalKeyPath _ _ _ = Null
--}
 
