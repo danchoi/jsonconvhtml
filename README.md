@@ -1,4 +1,4 @@
-# jsonbashfilter
+# jsonextfilter
 
 Applies external unix filters to specified key paths of a JSON object stream.
 
@@ -80,7 +80,7 @@ Output:
 More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces. The bash filter will be applied to all of them, e.g.
 
 ```bash
-jsonbf 'elinks -dump'  'description review' < example.json  | jq -M '.' 
+jsonextfilter 'elinks -dump'  'description review' < example.json  | jq -M '.' 
 ```
 
 Currently only ONE bash filter command can be given. If you want to apply a pipeline of commands, wrap it in a bash script.
