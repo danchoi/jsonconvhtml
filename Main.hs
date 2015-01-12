@@ -7,7 +7,6 @@ import qualified Data.Map.Strict as M
 import qualified Data.ByteString.Lazy as L
 import Data.ByteString.Lazy as BL hiding (map, intersperse, zip, concat, putStrLn)
 import qualified Data.ByteString.Lazy.Char8 as L8 
-import System.Time
 import System.Environment (getArgs)
 import Data.Aeson
 import Data.Monoid
@@ -54,7 +53,7 @@ main = do
       ks' = [k | KeyPath k <- ks]
       hs :: [Text] -- header labels
       hs = map keyPathToHeader ks
-  -- extract JSON
+  -- transform JSON
 
   when debugKeyPaths $ do
      Prelude.putStrLn $ "Key Paths: " ++ show ks
@@ -113,8 +112,18 @@ pIndex = Index <$> AT.decimal <* AT.char ']'
 
 ------------------------------------------------------------------------
 
--- runFilterOnPaths :: (Value -> IO Value) -> [KeyPath] -> Value -> IO Value
--- runFilterOnPaths ioFilter ks v = mapM (\kp -> runFilterOnPath filterProg kp v) ks
+runFilterOnPaths :: (Value -> IO Value) -> [[Key]] -> Value -> IO Value
+runFilterOnPaths ioFilter ks v = 
+  foldM 
+    (\acc kp -> 
+        case acc of 
+          (Object acc') -> do
+              v' <- runReaderT (runFilterOnPath [] acc) (FilterEnv kp ioFilter)
+              case v' of
+                (Object hm) -> return . Object $ HM.union hm acc'
+                x -> error $ "Expected Object, but got " ++ show x
+          x -> error $ "Expected Object, but got " ++ show x
+    ) v ks
 
 data FilterEnv = FilterEnv { targetKeyPath :: [Key]
                            , filterProg :: (Value -> IO Value)
@@ -122,6 +131,7 @@ data FilterEnv = FilterEnv { targetKeyPath :: [Key]
 
 runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
 runFilterOnPath k v = do
+      liftIO $ putStrLn $ "runFilterPath " ++ show k 
       targetKeyPath' <- asks targetKeyPath
       if (k == targetKeyPath') 
       then do
