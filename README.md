@@ -37,7 +37,7 @@ example.json:
 We want to transform the "description" fields from HTML to plain text:
 
 ```bash
-jsonbf 'elinks -dump'  'description' < example.json  | jq -M '.' > README.md
+jsonbf 'elinks -dump'  'description' < example.json  | jq -M '.' 
 ```
 
 NOTE: More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces.
