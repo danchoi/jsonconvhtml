@@ -59,6 +59,50 @@ main = do
      Prelude.putStrLn $ "Key Paths: " ++ show ks
      exitSuccess
   Prelude.putStrLn "TEST"  
+
+------------------------------------------------------------------------
+
+runFilterOnPaths :: (Value -> IO Value) -> [[Key]] -> Value -> IO Value
+runFilterOnPaths ioFilter ks v = 
+  foldM 
+    (\acc kp -> 
+        case acc of 
+          (Object acc') -> do
+              v' <- runReaderT (runFilterOnPath [] acc) (FilterEnv kp ioFilter)
+              case v' of
+                (Object hm) -> return . Object $ HM.union hm acc'
+                x -> error $ "Expected Object, but got " ++ show x
+          x -> error $ "Expected Object, but got " ++ show x
+    ) v ks
+
+data FilterEnv = FilterEnv { targetKeyPath :: [Key]
+                           , filterProg :: (Value -> IO Value)
+                           } 
+
+runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
+runFilterOnPath k v = do
+      liftIO $ putStrLn $ "runFilterPath " ++ show k 
+      targetKeyPath' <- asks targetKeyPath
+      if (k == targetKeyPath') 
+      then do
+          liftIO $ putStrLn $ "Matched key path " ++ show targetKeyPath'
+          return v
+      else go k v
+  where 
+    go :: [Key] -> Value -> ReaderT FilterEnv IO Value
+    go _ x@(String _) = return x
+    go _ Null = return Null
+    go _ x@(Number _) = return x
+    go _ x@(Bool _) = return x
+    go _ x@(Array _) = return x          -- no effect on Arrays
+    go ks x@(Object hm) = do
+       let pairs = HM.toList hm
+       pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilterOnPath (ks <> [Key k]) v) pairs
+       return . Object . HM.fromList $ pairs'
+
+
+
+
  
 ------------------------------------------------------------------------
 -- decode JSON object stream
@@ -109,46 +153,4 @@ pKeyOrIndex = pIndex <|> pKey
 pKey = Key <$> AT.takeWhile1 (AT.notInClass " .[:")
 
 pIndex = Index <$> AT.decimal <* AT.char ']'
-
-------------------------------------------------------------------------
-
-runFilterOnPaths :: (Value -> IO Value) -> [[Key]] -> Value -> IO Value
-runFilterOnPaths ioFilter ks v = 
-  foldM 
-    (\acc kp -> 
-        case acc of 
-          (Object acc') -> do
-              v' <- runReaderT (runFilterOnPath [] acc) (FilterEnv kp ioFilter)
-              case v' of
-                (Object hm) -> return . Object $ HM.union hm acc'
-                x -> error $ "Expected Object, but got " ++ show x
-          x -> error $ "Expected Object, but got " ++ show x
-    ) v ks
-
-data FilterEnv = FilterEnv { targetKeyPath :: [Key]
-                           , filterProg :: (Value -> IO Value)
-                           } 
-
-runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
-runFilterOnPath k v = do
-      liftIO $ putStrLn $ "runFilterPath " ++ show k 
-      targetKeyPath' <- asks targetKeyPath
-      if (k == targetKeyPath') 
-      then do
-          liftIO $ putStrLn $ "Matched key path " ++ show targetKeyPath'
-          return v
-      else go k v
-  where 
-    go :: [Key] -> Value -> ReaderT FilterEnv IO Value
-    go _ x@(String _) = return x
-    go _ Null = return Null
-    go _ x@(Number _) = return x
-    go _ x@(Bool _) = return x
-    go _ x@(Array _) = return x          -- no effect on Arrays
-    go ks x@(Object hm) = do
-       let pairs = HM.toList hm
-       pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilterOnPath (ks <> [Key k]) v) pairs
-       return . Object . HM.fromList $ pairs'
-
-
 
