@@ -138,17 +138,17 @@ runFilterOnPath k v = do
           liftIO $ putStrLn $ "Matched key path " ++ show targetKeyPath'
           return v
       else go k v
-  where go :: [Key] -> Value -> ReaderT FilterEnv IO Value
-        go _ x@(String _) = return x
-        go _ Null = return Null
-        go _ x@(Number _) = return x
-        go _ x@(Bool _) = return x
-        go _ x@(Array _) = return x          -- no effect on Arrays
-        go ((Key k):ks) x@(Object hm) = 
-            case (HM.lookup k hm) of
-                Just x'  -> do
-                   x'' <- runFilterOnPath ks x' 
-                   return . Object $ HM.union (HM.singleton k x'') hm
-                Nothing -> return x
+  where 
+    go :: [Key] -> Value -> ReaderT FilterEnv IO Value
+    go _ x@(String _) = return x
+    go _ Null = return Null
+    go _ x@(Number _) = return x
+    go _ x@(Bool _) = return x
+    go _ x@(Array _) = return x          -- no effect on Arrays
+    go ks x@(Object hm) = do
+       let pairs = HM.toList hm
+       pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilterOnPath (ks <> [Key k]) v) pairs
+       return . Object . HM.fromList $ pairs'
+
 
 
