@@ -51,8 +51,6 @@ main = do
       ks = parseKeyPath $ T.pack expr
       ks' :: [[Key]]
       ks' = [k | KeyPath k <- ks]
-      hs :: [Text] -- header labels
-      hs = map keyPathToHeader ks
   -- transform JSON
 
   when debugKeyPaths $ do
@@ -133,10 +131,6 @@ parseKeyPath :: Text -> [KeyPath]
 parseKeyPath s = case AT.parseOnly pKeyPaths s of
     Left err -> error $ "Parse error " ++ err 
     Right res -> res
-
-keyPathToHeader :: KeyPath -> Text
-keyPathToHeader (KeyPath ks) = 
-    mconcat $ intersperse "." $ [x | Key x <- ks] -- exclude Index keys
 
 spaces = many1 AT.space
 
