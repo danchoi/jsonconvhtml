@@ -42,6 +42,8 @@ jsonbf 'elinks -dump'  'description' < example.json  | jq -M '.'
 
 NOTE: More than one keypath can be specified in the keypaths argument string. Separate keypaths with spaces.
 
+Currently only ONE bash filter command can be given. If you want to apply a pipeline of commands, wrap it in a bash script.
+
 Output:
 
 ```json
