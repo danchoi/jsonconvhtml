@@ -56,7 +56,8 @@ main = do
       ks' :: [[Key]]
       ks' = [k | KeyPath k <- ks]
   when debugKeyPaths $ do
-     putStrLn $ "FilterProg: " ++ prog ++ show args
+     putStrLn $ "FilterProg: " ++ prog ++ " " ++ show args
+     putStrLn $ "PreFilterProg: " ++ show (fmap words preFilter)
      Prelude.putStrLn $ "Key Paths: " ++ show ks
      exitSuccess
   -- transform JSON
