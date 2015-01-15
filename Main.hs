@@ -24,108 +24,79 @@ import Control.Monad (when)
 import System.Exit
 import Data.String.QQ 
 import System.Process (readProcess, readProcessWithExitCode)
+import qualified Text.Regex.PCRE.Light as R
+import qualified Data.ByteString.Char8 as B
+import qualified Data.Text.Encoding as T
 
-data Options = Options { 
-    preFilter :: Maybe String
-  , filterProgram :: String
-  , fieldsToFilter :: String
-  , debugKeyPaths :: Bool
-  } deriving Show
-
-parseOpts :: O.Parser Options
-parseOpts = Options 
-  <$> ((Just <$> O.strOption (O.short 'p' <> O.long "prefilter" <> O.metavar "PREFILTER" <> O.help "This filter prevent main filter from being applied if exit code 0")) <|> pure Nothing)
-  <*> O.argument O.str (O.metavar "FILTERPROG" <> O.help "External filter")
-  <*> O.argument O.str (O.metavar "FIELDS" <> O.help "JSON keypath expressions")
-  <*> O.switch (O.long "debug" <> O.help "Debug keypaths")
-
-opts = O.info (O.helper <*> parseOpts)
+opts = O.info (O.helper)
           (O.fullDesc 
-            <> O.progDesc [s|Filter JSON object fields through shell.
+            <> O.progDesc [s|Convert all HTML in JSON objects strings to plain text.
                     On STDIN provide an input stream of newline-separated JSON objects. |]
-            <> O.header "jsonbf"
-            <> O.footer "See https://github.com/danchoi/jsonbashfilter for more information.")
+            <> O.header "jsonconvhtml"
+            <> O.footer "See https://github.com/danchoi/jsonconvhtml for more information.")
 
 main = do
-  Options preFilter filterProg expr debugKeyPaths <- O.execParser opts
-  let (prog:args) = words filterProg
+  O.execParser opts
   x <- BL.getContents 
   let xs :: [Value]
       xs = decodeStream x
-      ks = parseKeyPath $ T.pack expr
-      ks' :: [[Key]]
-      ks' = [k | KeyPath k <- ks]
-  when debugKeyPaths $ do
-     putStrLn $ "FilterProg: " ++ prog ++ " " ++ show args
-     putStrLn $ "PreFilterProg: " ++ show (fmap words preFilter)
-     Prelude.putStrLn $ "Key Paths: " ++ show ks
-     exitSuccess
   -- transform JSON
-  let bashFilter = io prog preFilter args
-  xs' <- mapM (runFilterOnPaths bashFilter ks') xs
+  let bashFilter = io "elinks" ["-dump"] (Just isHtml)
+  xs' <- mapM (runFilter bashFilter) xs
   mapM_ (L8.putStrLn . encode) xs'
-  
-io :: String -> Maybe String -> [String] -> Value -> IO Value
-io prog preFilter args v = 
+
+io :: String -> [String] -> Maybe (Text -> Bool) -> Value -> IO Value
+io prog args preFilter v = 
     case v of 
       String v' -> do
-        go <- runPreFilter v'
-        if go
+        if runPreFilter v'
         then do 
             res <- readProcess prog args (T.unpack v')
             return . String . T.pack $ res
         else return v -- no op
       _ -> return v -- no op
-
   where 
     runPreFilter v = 
       case preFilter of 
-        Just preFilter' -> do
-            let preProg:pArgs = words preFilter'
-            (exitcode, _, _ ) <- readProcessWithExitCode preProg pArgs (T.unpack v)
-            case exitcode of
-              ExitSuccess -> return True
-              ExitFailure _ -> return False
-        _ -> return True
+        Just preFilter' -> preFilter' v
+        _ -> True
+
+htmlRegex :: R.Regex
+htmlRegex = R.compile (B.pack regex) []
+  where regex :: String
+        regex = "</(html|body|p|ul|a|h1|h2|h3|table) *>|<br */?>|<img *src"
+
+isHtml :: Text -> Bool
+isHtml x = case R.match htmlRegex (T.encodeUtf8 x) [] of
+    Just _ -> True
+    Nothing -> False
+
+
 
 ------------------------------------------------------------------------
+data FilterEnv = FilterEnv { filterProg :: (Value -> IO Value) } 
 
-runFilterOnPaths :: (Value -> IO Value) -> [[Key]] -> Value -> IO Value
-runFilterOnPaths ioFilter ks v = 
-  foldM 
-    (\acc kp -> 
-        case acc of 
-          (Object acc') -> do
-              v' <- runReaderT (runFilterOnPath [] acc) (FilterEnv kp ioFilter)
-              case v' of
-                (Object hm) -> return . Object $ HM.union hm acc'
-                x -> error $ "Expected Object, but got " ++ show x
-          x -> error $ "Expected Object, but got " ++ show x
-    ) v ks
+runFilter :: (Value -> IO Value) -> Value -> IO Value
+runFilter ioFilter v = 
+    case v of 
+      (Object v') -> 
+          runReaderT (runFilter' v) (FilterEnv ioFilter)
+      x -> error $ "Expected Object, but got " ++ show x
 
-data FilterEnv = FilterEnv { targetKeyPath :: [Key]
-                           , filterProg :: (Value -> IO Value)
-                           } 
 
-runFilterOnPath :: [Key] -> Value -> ReaderT FilterEnv IO Value 
-runFilterOnPath k v = do
-      -- liftIO $ putStrLn $ "runFilterPath " ++ show k 
-      targetKeyPath' <- asks targetKeyPath
-      bashFilter' <- asks filterProg
-      if (k == targetKeyPath') 
-      then liftIO $ bashFilter' v
-      else go k v
-  where 
-    go :: [Key] -> Value -> ReaderT FilterEnv IO Value
-    go _ x@(String _) = return x
-    go _ Null = return Null
-    go _ x@(Number _) = return x
-    go _ x@(Bool _) = return x
-    go _ x@(Array _) = return x          -- no effect on Arrays
-    go ks x@(Object hm) = do
-       let pairs = HM.toList hm
-       pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilterOnPath (ks <> [Key k]) v) pairs
-       return . Object . HM.fromList $ pairs'
+runFilter' :: Value -> ReaderT FilterEnv IO Value 
+runFilter' v = do
+    io' <- asks filterProg
+    case v of 
+       (String _) -> liftIO $ io' v
+       Null -> return Null
+       (Number _) -> return v
+       (Bool _) -> return v
+       (Array _) -> return v          -- no effect on Arrays
+       (Object hm) -> do
+         let pairs = HM.toList hm
+         pairs' <- mapM (\(k,v) -> (,) <$> pure k <*> runFilter' v) pairs
+         return . Object . HM.fromList $ pairs'
 
 ------------------------------------------------------------------------
 -- decode JSON object stream
@@ -144,32 +115,3 @@ decodeWith p s =
   where f v' r = (\x -> case x of 
                       Success a -> (Just a, r)
                       _ -> (Nothing, r)) $ fromJSON v'
-
-------------------------------------------------------------------------
--- JSON parsing and data extraction
-
-data KeyPath = KeyPath [Key] deriving Show
-
-data Key = Key Text | Index Int deriving (Eq, Show)
-
-parseKeyPath :: Text -> [KeyPath]
-parseKeyPath s = case AT.parseOnly pKeyPaths s of
-    Left err -> error $ "Parse error " ++ err 
-    Right res -> res
-
-spaces = many1 AT.space
-
-pKeyPaths :: AT.Parser [KeyPath]
-pKeyPaths = pKeyPath `AT.sepBy` spaces
-
-pKeyPath :: AT.Parser KeyPath
-pKeyPath = KeyPath 
-    <$> (AT.sepBy1 pKeyOrIndex (AT.takeWhile1 $ AT.inClass ".["))
-
-pKeyOrIndex :: AT.Parser Key
-pKeyOrIndex = pIndex <|> pKey
-
-pKey = Key <$> AT.takeWhile1 (AT.notInClass " .[:")
-
-pIndex = Index <$> AT.decimal <* AT.char ']'
-
