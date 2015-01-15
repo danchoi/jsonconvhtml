@@ -62,7 +62,9 @@ io prog args preFilter v =
         _ -> True
 
 htmlRegex :: R.Regex
-htmlRegex = R.compile (B.pack regex) []
+htmlRegex = R.compile (B.pack regex) [R.caseless]
+  -- see https://hackage.haskell.org/package/pcre-light-0.3.1/docs/Text-Regex-PCRE-Light.html#t:PCREOption 
+  -- for other options
   where regex :: String
         regex = "</(html|body|p|ul|a|h1|h2|h3|table) *>|<br */?>|<img *src"
 
