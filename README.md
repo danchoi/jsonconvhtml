@@ -1,6 +1,7 @@
 # jsonconvhtml
 
-Applies "elinks -dump" to all string values in the object stream
+Applies "elinks -dump" to all string values in the object stream that 
+contain HTML markup
 
 ## Example
 
